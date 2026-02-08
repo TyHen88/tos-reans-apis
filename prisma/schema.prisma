@@ -1,0 +1,168 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  firebaseUid   String?   @unique // For Firebase Auth Sync
+  passwordHash  String?   // Optional if using only Google/Firebase
+  name          String
+  role          Role      @default(STUDENT)
+  avatar        String?
+  bio           String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  courses       Course[]      @relation("InstructorCourses")
+  enrollments   Enrollment[]
+  reviews       Review[]
+  transactions  Transaction[]
+  wishlist      Wishlist[]
+}
+
+model Resource {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  type        String   // "PDF", "LINK", "CODE", etc.
+  url         String
+  category    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+enum Role {
+  ADMIN
+  INSTRUCTOR
+  STUDENT
+}
+
+model Course {
+  id            String    @id @default(uuid())
+  title         String
+  description   String    @db.Text
+  thumbnail     String?
+  videoUrl      String?   // Promo video
+  price         Decimal   @db.Decimal(10, 2)
+  level         Level     // BEGINNER, INTERMEDIATE, ADVANCED, ALL_LEVELS
+  category      String
+  tags          String[]
+  duration      String?   // Display string e.g., "10h 30m"
+  status        Status    @default(DRAFT)
+  
+  instructorId  String
+  instructor    User      @relation("InstructorCourses", fields: [instructorId], references: [id])
+  instructorName String? // Cached name for easier frontend display
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  lessons       Lesson[]
+  enrollments   Enrollment[]
+  reviews       Review[]
+  transactions  Transaction[]
+  wishlistedBy  Wishlist[]
+}
+
+enum Level {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+  ALL_LEVELS
+}
+
+enum Status {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model Wishlist {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  courseId  String
+  course    Course   @relation(fields: [courseId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@unique([userId, courseId])
+}
+
+model Lesson {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  videoUrl    String?
+  content     String?  // Markdown/Text content
+  duration    Int      // Duration in minutes
+  order       Int      // Sequence number
+  isFree      Boolean  @default(false)
+  attachments Json?    // Array of {name, url} objects
+
+  courseId    String
+  course      Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Enrollment {
+  id               String   @id @default(uuid())
+  progress         Int      @default(0) // 0-100%
+  completedLessons String[] // Array of Lesson IDs
+
+  userId           String
+  user             User     @relation(fields: [userId], references: [id])
+  
+  courseId         String
+  course           Course   @relation(fields: [courseId], references: [id])
+
+  enrolledAt       DateTime @default(now())
+  lastAccessedAt   DateTime @default(now())
+
+  @@unique([userId, courseId])
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  rating    Int      // 1-5
+  comment   String?
+  
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  
+  courseId  String
+  course    Course   @relation(fields: [courseId], references: [id])
+  
+  createdAt DateTime @default(now())
+}
+
+model Transaction {
+  id              String   @id @default(uuid())
+  amount          Decimal
+  currency        String   @default("USD")
+  status          TxStatus // PENDING, SUCCESS, FAILED
+  provider        String   // "payway"
+  externalId      String?  // ABA Transaction ID
+  paymentUrl      String?  // for redirect
+
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+  
+  courseId        String
+  course          Course   @relation(fields: [courseId], references: [id])
+
+  createdAt       DateTime @default(now())
+}
+
+enum TxStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}

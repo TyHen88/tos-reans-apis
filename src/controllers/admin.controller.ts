@@ -11,7 +11,7 @@ export const getUsers = async (req: Request, res: Response) => {
         name: true,
         role: true,
         avatar: true,
-        createdAt: true,
+        createdAt: true, // createAt
       }
     });
     res.status(200).json({ success: true, data: users });

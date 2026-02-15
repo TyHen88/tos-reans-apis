@@ -7,7 +7,8 @@
     "start": "node dist/index.js",
     "dev": "nodemon",
     "build": "prisma generate && tsc",
-    "build:prod": "prisma generate && prisma migrate deploy && tsc",
+    "build:prod": "prisma generate && prisma migrate deploy && tsc && npm run postbuild",
+    "postbuild": "ls -la dist/ && echo 'Build completed successfully'",
     "generate": "npx prisma generate",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

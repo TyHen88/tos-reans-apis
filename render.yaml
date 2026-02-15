@@ -4,7 +4,7 @@ services:
     name: tos-rean-api
     runtime: node
     plan: free
-    buildCommand: npm install && npm run build:prod
+    buildCommand: npm install && chmod +x build.sh && ./build.sh
     startCommand: npm start
     healthCheckPath: /api/auth/me
     envVars:

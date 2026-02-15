@@ -1,11 +1,13 @@
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../utils/prisma';
+import { ApiResponse } from '../utils/ApiResponse';
+import { AppError } from '../utils/AppError';
 
-export const getCourseReviews = async (req: Request, res: Response) => {
+export const getCourseReviews = async (req: Request, res: Response, next: NextFunction) => {
   const { id } = req.params as { id: string };
   try {
     const reviews = await prisma.review.findMany({
-      where: { courseId: id },
+      where: { courseId: id, isPublished: true },
       include: {
         user: {
           select: {
@@ -16,13 +18,13 @@ export const getCourseReviews = async (req: Request, res: Response) => {
       },
       orderBy: { createdAt: 'desc' },
     });
-    res.status(200).json({ success: true, data: reviews });
+    return ApiResponse.success(res, reviews);
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Failed to fetch reviews', error });
+    return next(error);
   }
 };
 
-export const createReview = async (req: Request, res: Response) => {
+export const createReview = async (req: Request, res: Response, next: NextFunction) => {
   const { id } = req.params as { id: string };
   const { rating, comment } = req.body;
   const userId = (req as any).user.id;
@@ -39,20 +41,54 @@ export const createReview = async (req: Request, res: Response) => {
     });
 
     if (!enrollment) {
-      return res.status(403).json({ success: false, message: 'Only enrolled students can leave reviews' });
+      return next(new AppError('Only enrolled students can leave reviews', 403));
     }
 
-    const review = await prisma.review.create({
-      data: {
-        rating: Number(rating),
-        comment,
-        userId,
-        courseId: id,
-      },
+    // Check if verified purchase
+    const isVerifiedPurchase = !!enrollment;
+
+    const review = await prisma.$transaction(async (tx) => {
+        const _review = await tx.review.upsert({
+            where: {
+                userId_courseId: {
+                    userId,
+                    courseId: id,
+                },
+            },
+            create: {
+                rating: Number(rating),
+                comment,
+                userId,
+                courseId: id,
+                isVerifiedPurchase,
+            },
+            update: {
+                rating: Number(rating),
+                comment,
+                isVerifiedPurchase,
+            }
+        });
+
+        // Update course stats
+        const stats = await tx.review.aggregate({
+            where: { courseId: id, isPublished: true },
+            _avg: { rating: true },
+            _count: { rating: true },
+        });
+
+        await tx.course.update({
+            where: { id },
+            data: {
+                averageRating: stats._avg.rating || 0,
+                totalRatings: stats._count.rating || 0,
+            }
+        });
+
+        return _review;
     });
 
-    res.status(201).json({ success: true, message: 'Review submitted', data: review });
+    return ApiResponse.success(res, review, 'Review submitted successfully');
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Failed to submit review', error });
+    return next(error);
   }
 };

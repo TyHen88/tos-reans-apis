@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { errorMiddleware } from './middleware/error.middleware';
+import { trafficLogger } from './middleware/traffic.middleware';
 import routes from './routes';
 
 dotenv.config();
@@ -10,6 +11,10 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+// Traffic logging (after json parsing, before routes)
+app.use(trafficLogger);
+
 app.use('/uploads', express.static('uploads'));
 
 import { setupSwagger } from './config/swagger';

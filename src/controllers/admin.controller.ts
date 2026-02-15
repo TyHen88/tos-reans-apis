@@ -1,7 +1,9 @@
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../utils/prisma';
+import { ApiResponse } from '../utils/ApiResponse';
+import { AppError } from '../utils/AppError';
 
-export const getUsers = async (req: Request, res: Response) => {
+export const getUsers = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const users = await prisma.user.findMany({
       orderBy: { createdAt: 'desc' },
@@ -11,16 +13,16 @@ export const getUsers = async (req: Request, res: Response) => {
         name: true,
         role: true,
         avatar: true,
-        createdAt: true, // createAt
+        createdAt: true,
       }
     });
-    res.status(200).json({ success: true, data: users });
+    return ApiResponse.success(res, users);
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Failed to fetch users', error });
+    return next(error);
   }
 };
 
-export const updateUserRole = async (req: Request, res: Response) => {
+export const updateUserRole = async (req: Request, res: Response, next: NextFunction) => {
   const { id } = req.params as { id: string };
   const { role } = req.body;
   try {
@@ -28,13 +30,13 @@ export const updateUserRole = async (req: Request, res: Response) => {
       where: { id },
       data: { role },
     });
-    res.status(200).json({ success: true, data: user });
+    return ApiResponse.success(res, user, 'User role updated successfully');
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Failed to update user role', error });
+    return next(error);
   }
 };
 
-export const getStats = async (req: Request, res: Response) => {
+export const getStats = async (req: Request, res: Response, next: NextFunction) => {
   try {
     // 1. Total Revenue
     const totalRevenue = await prisma.transaction.aggregate({
@@ -64,19 +66,16 @@ export const getStats = async (req: Request, res: Response) => {
       take: 5
     });
 
-    res.status(200).json({
-      success: true,
-      data: {
-        totalRevenue: totalRevenue._sum.amount || 0,
-        mau: mauCount,
-        topCourses: topCourses.map(c => ({
-            id: c.id,
-            title: c.title,
-            enrollments: c._count.enrollments
-        }))
-      }
+    return ApiResponse.success(res, {
+      totalRevenue: totalRevenue._sum.amount || 0,
+      mau: mauCount,
+      topCourses: topCourses.map(c => ({
+          id: c.id,
+          title: c.title,
+          enrollments: c._count.enrollments
+      }))
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Failed to fetch stats', error });
+    return next(error);
   }
 };

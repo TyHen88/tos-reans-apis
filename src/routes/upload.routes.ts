@@ -1,44 +1,26 @@
 import { Router, Request, Response } from 'express';
-import multer from 'multer';
-import path from 'path';
 import { authMiddleware } from '../middleware/auth.middleware';
+import { upload } from '../middleware/upload.middleware';
+import { prisma } from '../utils/prisma';
+import logger from '../utils/logger';
 
 const router = Router();
-
-// Local storage configuration
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'uploads/');
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
-  },
-});
-
-const upload = multer({ 
-    storage,
-    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
-    fileFilter: (req, file, cb) => {
-        const filetypes = /jpeg|jpg|png|webp/;
-        const mimetype = filetypes.test(file.mimetype);
-        const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
-
-        if (mimetype && extname) {
-            return cb(null, true);
-        }
-        cb(new Error('Only images are allowed (jpeg, jpg, png, webp)'));
-    }
-});
 
 /**
  * @swagger
  * /upload:
  *   post:
  *     summary: Upload a file (thumbnail or avatar)
+ *     description: Uploads a file and optionally updates the user's avatar if type=avatar is provided.
  *     tags: [Utils]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: type
+ *         schema:
+ *           type: string
+ *         description: Use 'avatar' to automatically update user profile
  *     requestBody:
  *       content:
  *         multipart/form-data:
@@ -52,15 +34,38 @@ const upload = multer({
  *       200:
  *         description: File uploaded successfully
  */
-router.post('/', authMiddleware, upload.single('file'), (req: Request, res: Response) => {
+router.post('/', authMiddleware, upload.single('file'), async (req: Request, res: Response) => {
   if (!req.file) {
     return res.status(400).json({ success: false, message: 'No file uploaded' });
   }
 
-  // In production, you would upload this to S3/Cloudinary.
-  // Returning the local relative path for now.
   const filePath = `/uploads/${req.file.filename}`;
-  res.status(200).json({ success: true, data: { url: filePath } });
+  const type = req.query.type;
+
+  // If type is avatar, update user table automatically
+  if (type === 'avatar') {
+    try {
+      const userId = (req as any).user.userId || (req as any).user.id;
+      if (userId) {
+        await prisma.user.update({
+          where: { id: userId },
+          data: { avatar: filePath }
+        });
+        logger.info(`Updated avatar for user ${userId} via generic upload`);
+      }
+    } catch (error) {
+      logger.error('Failed to update avatar in generic upload:', error);
+      // We don't fail the whole request since the file was uploaded successfully
+    }
+  }
+
+  res.status(200).json({ 
+    success: true, 
+    data: { 
+      url: filePath,
+      updatedProfile: type === 'avatar'
+    } 
+  });
 });
 
 export default router;

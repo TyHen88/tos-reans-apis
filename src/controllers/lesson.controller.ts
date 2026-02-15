@@ -1,98 +1,116 @@
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../utils/prisma';
+import { ApiResponse } from '../utils/ApiResponse';
+import { AppError } from '../utils/AppError';
+import { slugify } from '../utils/slug';
 
-export const getLessons = async (req: Request, res: Response) => {
+export const getLessons = async (req: Request, res: Response, next: NextFunction) => {
   const { courseId } = req.params as { courseId: string };
   try {
     const lessons = await prisma.lesson.findMany({
       where: { courseId },
       orderBy: { order: 'asc' },
     });
-    res.status(200).json({ success: true, data: lessons });
+    return ApiResponse.success(res, lessons);
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Failed to fetch lessons', error });
+    return next(error);
   }
 };
 
-export const createLesson = async (req: Request, res: Response) => {
+export const createLesson = async (req: Request, res: Response, next: NextFunction) => {
   const { courseId } = req.params as { courseId: string };
-  const { title, description, duration, isFree, videoUrl, order, attachments } = req.body;
+  const { title, description, duration, isFree, videoUrl, videoProvider, order, attachments, isPublished } = req.body;
 
   try {
+    // Generate unique slug for lesson within the course
+    const slug = slugify(title);
+    
     const lesson = await prisma.lesson.create({
       data: {
         title,
+        slug,
         description,
         duration: Number(duration),
-        isFree,
+        isFree: !!isFree,
+        isPublished: isPublished !== undefined ? !!isPublished : true,
         videoUrl,
+        videoProvider,
         order: Number(order),
         attachments: attachments || [],
         courseId,
       },
     });
-    res.status(201).json({ success: true, message: 'Lesson created', data: lesson });
+    return ApiResponse.success(res, lesson, 'Lesson created successfully', 201);
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Failed to create lesson', error });
+    return next(error);
   }
 };
 
-export const bulkCreateLessons = async (req: Request, res: Response) => {
+export const bulkCreateLessons = async (req: Request, res: Response, next: NextFunction) => {
   const { courseId } = req.params as { courseId: string };
-  const { lessons } = req.body; // Expects array of { title, description, etc. }
+  const { lessons } = req.body;
 
   try {
-    // Delete existing lessons and recreate for a clean "Course Wizard" save logic
-    // or simply use createMany if prisma supports it and you want to append.
-    // Given Wizard logic, often it's a full replace or careful sync.
-    // Let's implement an upsert-like behavior or clear-and-create.
-    
-    await prisma.$transaction([
-      prisma.lesson.deleteMany({ where: { courseId } }),
-      prisma.lesson.createMany({
-        data: lessons.map((l: any) => ({
-          ...l,
-          courseId,
-          duration: Number(l.duration || 0),
-          order: Number(l.order || 0),
-          attachments: l.attachments || [],
-        })),
-      }),
-    ]);
+    await prisma.$transaction(async (tx) => {
+      // Clear old lessons
+      await tx.lesson.deleteMany({ where: { courseId } });
+      
+      // Create new ones with slugs
+      for (const l of lessons) {
+        await tx.lesson.create({
+            data: {
+                title: l.title,
+                slug: l.slug || slugify(l.title),
+                description: l.description,
+                videoUrl: l.videoUrl,
+                videoProvider: l.videoProvider,
+                duration: Number(l.duration || 0),
+                order: Number(l.order || 0),
+                isFree: !!l.isFree,
+                isPublished: l.isPublished !== undefined ? !!l.isPublished : true,
+                attachments: l.attachments || [],
+                courseId,
+            }
+        });
+      }
+    });
 
     const updatedLessons = await prisma.lesson.findMany({
       where: { courseId },
       orderBy: { order: 'asc' },
     });
 
-    res.status(200).json({ success: true, message: 'Lessons updated successfully', data: updatedLessons });
+    return ApiResponse.success(res, updatedLessons, 'Lessons bulk updated successfully');
   } catch (error) {
-    console.error('Bulk lesson error:', error);
-    res.status(500).json({ success: false, message: 'Failed to bulk update lessons', error });
+    return next(error);
   }
 };
 
-export const updateLesson = async (req: Request, res: Response) => {
+export const updateLesson = async (req: Request, res: Response, next: NextFunction) => {
   const { lessonId } = req.params as { lessonId: string };
-  const data = req.body;
+  const { id, courseId, createdAt, updatedAt, ...data } = req.body;
 
   try {
+    if (data.title && !data.slug) {
+        data.slug = slugify(data.title);
+    }
+
     const lesson = await prisma.lesson.update({
       where: { id: lessonId },
       data,
     });
-    res.status(200).json({ success: true, message: 'Lesson updated', data: lesson });
+    return ApiResponse.success(res, lesson, 'Lesson updated successfully');
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Failed to update lesson', error });
+    return next(error);
   }
 };
 
-export const deleteLesson = async (req: Request, res: Response) => {
+export const deleteLesson = async (req: Request, res: Response, next: NextFunction) => {
   const { lessonId } = req.params as { lessonId: string };
   try {
     await prisma.lesson.delete({ where: { id: lessonId } });
-    res.status(200).json({ success: true, message: 'Lesson deleted' });
+    return ApiResponse.success(res, null, 'Lesson deleted successfully');
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Failed to delete lesson', error });
+    return next(error);
   }
 };
